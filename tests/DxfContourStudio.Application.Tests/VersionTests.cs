@@ -48,7 +48,9 @@ public class VersioningTests
     public void CoreAssembly_MatchesSameVersion()
     {
         var core = Assembly.Load("DxfContourStudio.Core");
-        Assert.Equal(Version3, core.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion);
+        // InformationalVersion may carry a CI SourceRevisionId suffix ("+<sha>"),
+        // so assert the pinned version prefix only (same as the Application check above).
+        Assert.StartsWith(Version3, core.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion);
         Assert.Equal(Version5, core.GetName().Version!.ToString());
     }
 }

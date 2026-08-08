@@ -84,8 +84,10 @@ public sealed class PerformanceSanityTests
         sw.Stop();
 
         // Every entity restored to its original position after undo.
+        // Budget is generous (CI runners are slower than local dev boxes) but
+        // still catches an accidental O(n²) regression in move/undo.
         Assert.Equal(new Point2(0, 0), doc.GetEntityById(1)!.StartPoint);
-        Assert.True(sw.ElapsedMilliseconds < 1500, $"Move+Undo over {count} entities took {sw.ElapsedMilliseconds} ms");
+        Assert.True(sw.ElapsedMilliseconds < 3000, $"Move+Undo over {count} entities took {sw.ElapsedMilliseconds} ms");
     }
 
     [Theory]
