@@ -1,0 +1,60 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!--
+        Panels.xaml — shared layout styles for the side panels and the bottom
+        diagnostics area: panel headers, section headers, label/value rows and
+        diagnostic rows. Panels stay declarative in MainWindow.xaml and pick
+        these keys up by name.
+    -->
+
+    <!-- panel title (top of a side panel) -->
+    <Style x:Key="Panel.Title" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource Font.App}"/>
+        <Setter Property="FontSize" Value="{StaticResource Font.Size.Large}"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+
+    <!-- section header inside a panel -->
+    <Style x:Key="Panel.SectionTitle" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource Font.App}"/>
+        <Setter Property="FontSize" Value="{StaticResource Font.Size.Normal}"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+        <Setter Property="Margin" Value="0,2,0,4"/>
+    </Style>
+
+    <!-- property label (left column) -->
+    <Style x:Key="Panel.PropertyLabel" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource Font.App}"/>
+        <Setter Property="FontSize" Value="{StaticResource Font.Size.Normal}"/>
+        <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+    </Style>
+
+    <!-- property value (right column) -->
+    <Style x:Key="Panel.PropertyValue" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource Font.App}"/>
+        <Setter Property="FontSize" Value="{StaticResource Font.Size.Normal}"/>
+        <Setter Property="Foreground" Value="{StaticResource TextPrimary}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+
+    <!-- two-column label/value row (used by properties + import report) -->
+    <Style x:Key="Panel.PropertyRow" TargetType="Grid">
+        <Setter Property="Margin" Value="0,1"/>
+    </Style>
+
+    <!-- generic hint / empty-state text -->
+    <Style x:Key="Panel.Hint" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource Font.App}"/>
+        <Setter Property="FontSize" Value="{StaticResource Font.Size.Small}"/>
+        <Setter Property="Foreground" Value="{StaticResource TextSecondary}"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+    </Style>
+
+</ResourceDictionary>

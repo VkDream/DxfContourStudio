@@ -1,0 +1,28 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\DxfContourStudio.Core\DxfContourStudio.Core.csproj" />
+    <ProjectReference Include="..\DxfContourStudio.Dxf\DxfContourStudio.Dxf.csproj" />
+    <ProjectReference Include="..\DxfContourStudio.Application\DxfContourStudio.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <!-- Product icon: original artwork, see Assets/DxfContourStudio.svg -->
+    <ApplicationIcon>Assets\DxfContourStudio.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\DxfContourStudio.ico" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\DxfContourStudio.svg" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

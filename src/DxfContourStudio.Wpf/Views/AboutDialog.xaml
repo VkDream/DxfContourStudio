@@ -1,0 +1,60 @@
+<Window x:Class="DxfContourStudio.Wpf.Views.AboutDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:loc="clr-namespace:DxfContourStudio.Wpf.Localization"
+        xmlns:vm="clr-namespace:DxfContourStudio.Wpf.ViewModels"
+        Title="{loc:Loc About.Title}"
+        Width="480" SizeToContent="Height"
+        ResizeMode="NoResize" ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        Icon="pack://application:,,,/Assets/DxfContourStudio.ico"
+        Style="{StaticResource Typography.Window}">
+    <Window.DataContext>
+        <vm:AboutDialogViewModel/>
+    </Window.DataContext>
+    <Border Background="{StaticResource PanelBackground}"
+            BorderBrush="{StaticResource BorderNormal}" BorderThickness="1" Padding="20">
+        <StackPanel>
+            <!-- header: icon + title + version -->
+            <StackPanel Orientation="Horizontal" Margin="0,0,0,14">
+                <Image Source="pack://application:,,,/Assets/DxfContourStudio.ico"
+                       Width="44" Height="44" SnapsToDevicePixels="True"/>
+                <StackPanel Margin="12,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding AppName}" FontSize="18" FontWeight="SemiBold"/>
+                    <TextBlock Text="{Binding Version}" Foreground="{StaticResource TextSecondary}" Margin="0,2,0,0"/>
+                </StackPanel>
+            </StackPanel>
+
+            <TextBlock Text="{loc:Loc About.Description}" TextWrapping="Wrap"
+                       Foreground="{StaticResource TextPrimary}" Margin="0,0,0,14"/>
+
+            <!-- label/value rows -->
+            <Grid Margin="0,0,0,10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="96"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="{loc:Loc About.Technology}"
+                           Foreground="{StaticResource TextSecondary}" Margin="0,2"/>
+                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding TechnologyValue}" Margin="8,2,0,2"/>
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="{loc:Loc About.License}"
+                           Foreground="{StaticResource TextSecondary}" Margin="0,2"/>
+                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding LicenseValue}" Margin="8,2,0,2"/>
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="{loc:Loc About.GitHub}"
+                           Foreground="{StaticResource TextSecondary}" Margin="0,2"/>
+                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding GitHubStatus}" Margin="8,2,0,2"/>
+            </Grid>
+
+            <TextBlock Text="{loc:Loc About.Copyright}" Foreground="{StaticResource TextSecondary}"
+                       FontSize="11" Margin="0,0,0,14"/>
+
+            <Button Content="{loc:Loc About.Close}" HorizontalAlignment="Right" MinWidth="88" Padding="16,4"
+                    IsCancel="True"/>
+        </StackPanel>
+    </Border>
+</Window>

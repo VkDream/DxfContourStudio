@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  DxfContourStudio.svg — original icon source design (2026-08-07, DxfContourStudio project).
+
+  Design concept: "DXF / CAD / Contour"
+    - blue CAD square frame (the drafting viewport)
+    - orange closed contour path inside (the product's core: contour analysis)
+    - a few geometric nodes (joints of the contour)
+
+  This is an original artwork authored for the DxfContourStudio project.
+  No third-party CAD/DXF icon assets are used. Licensed Apache-2.0.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- transparent background -->
+  <rect width="256" height="256" fill="none"/>
+
+  <!-- blue CAD square frame with rounded corners -->
+  <rect x="14" y="14" width="228" height="228" rx="36" ry="36"
+        fill="#2D5F8A" stroke="#1E4466" stroke-width="6"/>
+
+  <!-- inner drafting plate (lighter blue) -->
+  <rect x="38" y="38" width="180" height="180" rx="24" ry="24"
+        fill="#F4F8FB" stroke="#B8CFE2" stroke-width="4"/>
+
+  <!-- orange closed contour: quadrilateral outline with rounded joints -->
+  <path d="M 78 96 L 178 96 L 178 168 L 122 168 L 78 168 Z"
+        fill="none" stroke="#E07818" stroke-width="14"
+        stroke-linejoin="round" stroke-linecap="round"/>
+
+  <!-- contour nodes (geometric joints) -->
+  <circle cx="78"  cy="96"  r="13" fill="#E07818"/>
+  <circle cx="178" cy="96"  r="13" fill="#E07818"/>
+  <circle cx="178" cy="168" r="13" fill="#E07818"/>
+  <circle cx="78"  cy="168" r="13" fill="#E07818"/>
+</svg>
