@@ -1,7 +1,7 @@
 ﻿# DxfContourStudio architecture
 
-Status: matches the code as of 2026-08-08 (v0.2.0)
-hardening). ADR files in `docs/ADR/` record the decisions.
+Status: matches the code as of 2026-08-11 (0.3.0-dev, interactive editing
+tools D13A–D17). ADR files in `docs/ADR/` record the decisions.
 
 ## Solution layout
 
@@ -18,13 +18,15 @@ DxfContourStudio.sln
 鈹? 鈹? 鈹斺攢 Infrastructure/           # AcadSharpDxfReader/Mapper/Writer, BulgeConverter
 鈹? 鈹溾攢 DxfContourStudio.Application # documents, imports, exports, projects, commands
 鈹? 鈹? 鈹溾攢 Documents/CadDocument (+LayerState, dirty, unsaved guard)
+鈹? 鈹? 鈹溾攢 Interaction/EditToolSession (tool mode state machine, ADR-019)
 鈹? 鈹? 鈹溾攢 Imports/DxfImportService
 鈹? 鈹? 鈹溾攢 Exports/DxfExportService
 鈹? 鈹? 鈹溾攢 Projects/ProjectSerializer (+ .dxfstudio model)
-鈹? 鈹? 鈹溾攢 Commands/ (history, move/delete, gap repair, batch/composite)
+鈹? 鈹? 鈹溾攢 Commands/ (history, move/delete, gap repair, batch/composite,
+鈹? 鈹? 鈹?             join/break/trim/extend, node edit)
 鈹? 鈹? 鈹斺攢 Selection/SelectionModel, Viewport, HitTester
 鈹? 鈹斺攢 DxfContourStudio.Wpf         # WPF UI only
-鈹?    鈹斺攢 Views/CadViewport (OnRender + overlay), ViewModels/MainViewModel, MainWindow
+鈹?    鈹斺攢 Views/CadViewport (OnRender + tool overlay), ViewModels/MainViewModel, MainWindow
 鈹斺攢 tests
    鈹溾攢 DxfContourStudio.Core.Tests
    鈹溾攢 DxfContourStudio.Dxf.Tests
@@ -50,11 +52,15 @@ CadDocument 鈫?ProjectSerializer 鈫?*.dxfstudio (JSON, lossless)
    factors; export converts back per `DxfExportOptions.OutputUnit`.
 3. **Arcs are never full circles**; a 2蟺 sweep is a `CircleGeometry`.
 4. **The UI never mutates geometry**: commands live in Application; the Wpf
-   layer only renders and forwards gestures.
+   layer only renders and forwards gestures. Interactive tools (ADR-019)
+   stage gestures in `EditToolSession` and forward finished edits to the
+   same commands.
 5. **Tolerances are centralized** in `GeometryTolerance` and persisted with
    the project.
 6. **Rendering never uses open StreamGeometry with isStroked:false runs** 鈥?   open figures are drawn with `DrawLine` (regression-guarded by offscreen
    render tests).
+7. **Analysis output is either current or stale** (ADR-020): after any edit
+   or undo the diagnostics panel shows a stale banner and no old numbers.
 
 ## Testing
 

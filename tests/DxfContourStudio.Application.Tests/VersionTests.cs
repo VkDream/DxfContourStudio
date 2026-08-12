@@ -7,28 +7,28 @@ namespace DxfContourStudio.Application.Tests;
 
 /// <summary>
 /// Guards the single-source versioning setup (ADR-006): the root
-/// Directory.Build.props pins 0.2.0 across Version / AssemblyVersion /
+/// Directory.Build.props pins 0.3.0-dev across Version / AssemblyVersion /
 /// FileVersion / InformationalVersion, and the shipped assemblies must agree
 /// with it. Keeps a future accidental bump or split from going unnoticed.
 /// </summary>
 public class VersioningTests
 {
-    private const string Version5 = "0.2.0.0";
-    private const string Version3 = "0.2.0";
+    private const string Version5 = "0.3.0.0";
+    private const string Version3 = "0.3.0-dev";
 
     [Fact]
-    public void ApplicationAssembly_AssemblyVersion_Is_0_2_0_0()
+    public void ApplicationAssembly_AssemblyVersion_Is_0_3_0_0()
     {
         var assembly = typeof(CadDocument).Assembly;
         Assert.Equal(0, assembly.GetName().Version!.Major);
-        Assert.Equal(2, assembly.GetName().Version!.Minor);
+        Assert.Equal(3, assembly.GetName().Version!.Minor);
         Assert.Equal(0, assembly.GetName().Version!.Build);
         Assert.Equal(0, assembly.GetName().Version!.Revision);
         Assert.Equal(Version5, assembly.GetName().Version!.ToString());
     }
 
     [Fact]
-    public void ApplicationAssembly_InformationalVersion_Is_0_2_0()
+    public void ApplicationAssembly_InformationalVersion_Is_0_3_0_dev()
     {
         var informational = typeof(CadDocument).Assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()!
@@ -37,7 +37,7 @@ public class VersioningTests
     }
 
     [Fact]
-    public void ApplicationAssembly_FileVersion_Is_0_2_0_0()
+    public void ApplicationAssembly_FileVersion_Is_0_3_0_0()
     {
         var fileVersion = typeof(CadDocument).Assembly
             .GetCustomAttribute<AssemblyFileVersionAttribute>()!;

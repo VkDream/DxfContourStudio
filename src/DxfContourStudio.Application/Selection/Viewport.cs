@@ -33,9 +33,17 @@ public sealed class Viewport
     /// </summary>
     public event Action? Changed;
 
-    public Viewport(double initialScale = 1.0)
+    /// <summary>Hard lower bound of the zoom factor (pixels per world unit).</summary>
+    private readonly double _minPixelsPerWorld;
+
+    /// <summary>Hard upper bound of the zoom factor (pixels per world unit).</summary>
+    private readonly double _maxPixelsPerWorld;
+
+    public Viewport(double initialScale = 1.0, double minPixelsPerWorld = 1e-4, double maxPixelsPerWorld = 1e6)
     {
-        PixelsPerWorld = initialScale;
+        PixelsPerWorld = Math.Clamp(initialScale, minPixelsPerWorld, maxPixelsPerWorld);
+        _minPixelsPerWorld = minPixelsPerWorld;
+        _maxPixelsPerWorld = maxPixelsPerWorld;
     }
 
     public Point2 WorldToScreen(Point2 world, double viewWidthPx, double viewHeightPx) =>
@@ -60,24 +68,74 @@ public sealed class Viewport
         Changed?.Invoke();
     }
 
+    /// <summary>
+    /// Zooms by <paramref name="factor"/> around the viewport centre, clamped
+    /// to the configured zoom bounds. The factor is a multiplier of the
+    /// pixels-per-world scale (1.15 per wheel notch).
+    /// </summary>
     public void ZoomAt(double factor)
     {
         if (factor > 0)
         {
-            PixelsPerWorld = Math.Max(PixelsPerWorld * factor, 1e-9);
+            PixelsPerWorld = Math.Clamp(PixelsPerWorld * factor, _minPixelsPerWorld, _maxPixelsPerWorld);
             Changed?.Invoke();
         }
     }
 
-    public void ZoomToFit(in Bounds bounds, double viewportWidthPx, double viewportHeightPx)
+    /// <summary>
+    /// Zooms by <paramref name="factor"/> while keeping the world point under
+    /// <paramref name="screenPoint"/> fixed on screen (cursor-anchored wheel
+    /// zoom). Pure math so the gesture is unit-testable; the view calls this
+    /// with the cursor position and viewport size.
+    /// </summary>
+    public void ZoomAtScreen(double factor, Point2 screenPoint, double viewportWidthPx, double viewportHeightPx)
+    {
+        if (factor <= 0)
+        {
+            return;
+        }
+
+        double oldScale = PixelsPerWorld;
+        double newScale = Math.Clamp(oldScale * factor, _minPixelsPerWorld, _maxPixelsPerWorld);
+        if (newScale == oldScale)
+        {
+            return;
+        }
+
+        // The world point under the cursor must stay under the cursor, so the
+        // centre moves by the world delta of the cursor position.
+        Point2 anchor = ScreenToWorld(screenPoint, viewportWidthPx, viewportHeightPx);
+        PixelsPerWorld = newScale;
+        Point2 anchorAfter = ScreenToWorld(screenPoint, viewportWidthPx, viewportHeightPx);
+        Center = new Point2(Center.X + anchor.X - anchorAfter.X, Center.Y + anchor.Y - anchorAfter.Y);
+        Changed?.Invoke();
+    }
+
+    /// <summary>
+    /// Pans the view by a screen-pixel delta (drag gesture) so the content
+    /// follows the pointer 1:1. The Y axis is flipped because screen y grows
+    /// downwards while world y grows upwards.
+    /// </summary>
+    public void PanByScreen(double deltaXScreenPx, double deltaYScreenPx)
+    {
+        Pan(new Point2(-deltaXScreenPx / PixelsPerWorld, deltaYScreenPx / PixelsPerWorld));
+    }
+
+    public void ZoomToFit(in Bounds bounds, double viewportWidthPx, double viewportHeightPx, double marginRatio = 0.05)
     {
         double w = bounds.Width;
         double h = bounds.Height;
-        double scaleX = w > 1e-12 ? viewportWidthPx / w : 1.0;
-        double scaleY = h > 1e-12 ? viewportHeightPx / h : 1.0;
-        // 5% padding so geometry is not glued to the edges.
-        double scale = Math.Min(scaleX, scaleY) * 0.95;
-        PixelsPerWorld = scale > 1e-9 ? scale : 1.0;
+        const double Eps = 1e-12;
+        // A degenerate dimension (vertical line / horizontal line / point)
+        // cannot constrain the scale — ignore it instead of falling back to a
+        // wrong scale of 1.0.
+        double scaleX = w > Eps ? viewportWidthPx / w : double.PositiveInfinity;
+        double scaleY = h > Eps ? viewportHeightPx / h : double.PositiveInfinity;
+        double margin = Math.Clamp(marginRatio, 0.0, 0.9);
+        double scale = Math.Min(scaleX, scaleY) * (1.0 - margin);
+        PixelsPerWorld = scale is double.PositiveInfinity || scale < _minPixelsPerWorld
+            ? 1.0
+            : Math.Min(scale, _maxPixelsPerWorld);
         Center = new Point2(bounds.Center.X, bounds.Center.Y);
         Changed?.Invoke();
     }

@@ -83,21 +83,37 @@ public class MainViewModelIntegrationTests
 
 ContourAnalysisResult? afterRepair = vm.AnalysisResult;
         Assert.NotNull(afterRepair);
+        // repair → analysis is re-run automatically (the D17 exception: the
+        // repair commands keep the panels fresh).
+        Assert.False(vm.IsAnalysisStale);
         Assert.Equal(0, afterRepair.SmallGapCount);
         // Open-chain contract: the two runs join into one open chain.
         Assert.Equal(1, afterRepair.OpenCount);
         Assert.Equal(0, afterRepair.ClosedCount);
         Assert.DoesNotContain(vm.DiagnosticItems, d => d.Gap?.Kind == GapKind.SmallGap);
 
-        // undo 鈫?the small gap returns
+        // undo → the geometry changed, so the analysis goes stale: the result
+        // object is kept as-is (one click re-analyzes) but every row and
+        // overlay marker is dropped and the stale flag is raised.
         vm.UndoCommand.Execute(null);
-        Assert.Single(vm.DiagnosticItems, d => d.Gap?.Kind == GapKind.SmallGap);
-        Assert.Equal(1, vm.AnalysisResult!.SmallGapCount);
-
-        // redo 鈫?repaired again
-vm.RedoCommand.Execute(null);
+        Assert.True(vm.IsAnalysisStale);
+        Assert.Empty(vm.DiagnosticItems);
+        // The kept result object is the repaired snapshot — no re-analysis
+        // happened on undo.
         Assert.Equal(0, vm.AnalysisResult!.SmallGapCount);
-        Assert.DoesNotContain(vm.DiagnosticItems, d => d.Gap?.Kind == GapKind.SmallGap);
+
+        // re-analyze → fresh again, the small gap row is back.
+        vm.AnalyzeCommand.Execute(null);
+        Assert.False(vm.IsAnalysisStale);
+        Assert.Equal(1, vm.AnalysisResult!.SmallGapCount);
+        Assert.Single(vm.DiagnosticItems, d => d.Gap?.Kind == GapKind.SmallGap);
+
+        // redo → stale again (the redo also edits geometry).
+        vm.RedoCommand.Execute(null);
+        Assert.True(vm.IsAnalysisStale);
+        Assert.Empty(vm.DiagnosticItems);
+        // The kept result object is the re-analyzed (gap restored) snapshot.
+        Assert.Equal(1, vm.AnalysisResult!.SmallGapCount);
     }
 
     [Fact]

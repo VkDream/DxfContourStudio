@@ -493,3 +493,21 @@ settings.json
 crash-*.log
 # Test-local generated files.
 TestResults/
+
+# --- SafeGitPublisher 推荐规则（追加） ---
+tmp/
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+*.sqlite
+*.sqlite3
+.env.*
+secrets.json
+appsettings.Local.json
+*.p12
+*.key
+*.pem
+.claude/
+.reasonix/
+.serena/

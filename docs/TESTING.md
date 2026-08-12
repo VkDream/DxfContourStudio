@@ -32,7 +32,26 @@ counts, bounds, contour census, diagnostics) for each.
   one composite undo), `MainViewModelIntegrationTests` (Analyze→Repair→Undo→
   Redo through the real VM).
 - **Intersection**: `IntersectionEngineTests` (cross, touch, parallel,
-  collinear overlap, near-tolerance, degenerate).
+  collinear overlap, near-tolerance, degenerate) and
+  `SelfIntersectionTests` (all runs, tangent not flagged).
+- **Editing (D4–D7)**: `JoinTests` / `JoinManyCommandTests` (chain join +
+  single undo), `BreakTests` (midpoint, arc, polyline run, undo/redo),
+  `TrimExtendTests` (trim both sides, extend line/arc/polyline, no-op,
+  undo), `NodeEditTests` (re-splice arcs, shared vertices, closed polys).
+- **Interactive tools (D13A–D17)**: `EditToolSessionTests` (activation,
+  step picking, hover, escape chains, overlay data, single undo per edit,
+  document-changed invalidation), `TrimSectionCommandTests` (id assignment
+  for kept/discarded pieces), `MainViewModelToolTests` (tool activation via
+  string command parameters, full join pipeline, refusal statuses, undo
+  invalidates analysis), `MainViewModelIntegrationTests` stale-banner
+  snapshots across undo/redo.
+- **Scale (D9/D11)**: `SpatialIndexTests` + `SpatialIndexStressTests` and
+  `DocumentPickStressTests` — 100k entities, correctness pinned against a
+  linear-scan oracle; a regression to O(n) picking would surface as a CI
+  hang.
+- **Edited-geometry round-trip (D10)**: `EditedGeometryRoundTripTests` —
+  mixed polyline arc runs, sweep sign, closed flags, node moves survive
+  save → load byte-exact.
 - **Diagnostics**: `GeometryDiagnosticsTests` (zero length, very small,
   duplicates incl. reversed, bow-tie self intersection, NaN guard).
 - **Localization**: key-set parity zh/en + format-placeholder safety.

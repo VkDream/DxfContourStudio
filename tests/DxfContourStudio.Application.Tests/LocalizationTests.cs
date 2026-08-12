@@ -14,6 +14,7 @@ namespace DxfContourStudio.Application.Tests;
 /// - formatted messages and the deterministic fallback behave as specified.
 /// These tests keep the localization base honest without a UI.
 /// </summary>
+[Collection("LocalizationShared")]
 public class LocalizationTests
 {
     private static readonly string[] AllCodeKeys = typeof(LocalizationKeys)

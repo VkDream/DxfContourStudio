@@ -26,13 +26,17 @@ Current version: **0.2.0** — first public functional release (2026-08-08).
 - Gap semantics correction: open-chain gap repair vs contour-closure repair
   are distinct scenarios with dedicated fixtures (small_gap_003 /
   rectangle_gap_003).
+- Interactive editing tools (D13A–D17): Select / Node Edit / Join / Break /
+  Trim / Extend as tools (EditToolSession, ADR-019) with toolbar + menu
+  activation, hover previews, escape chains, single-undo-per-edit; stale
+  analysis semantics with banner (ADR-020).
 
 ## Next candidates (not started — await user)
 
 - Self intersection for line-arc / arc-arc.
 - Repair preview (Core can compute original/new endpoints + delta).
 - 9 additional unit/unitless/degenerate fixtures.
-- Trim / Extend / Offset / Fillet — explicitly out of scope (per user).
+- Offset / Fillet / Kerf — out of scope per user (Trim/Extend are done).
 - CAM / GCode / machine integration — out of scope.
 
 ## Explicitly excluded

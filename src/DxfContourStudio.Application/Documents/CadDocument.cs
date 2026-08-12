@@ -22,6 +22,14 @@ public sealed class CadDocument
     private readonly List<IGeometryEntity> _entities = [];
     private readonly Dictionary<string, bool> _layerVisibility = new(StringComparer.OrdinalIgnoreCase);
 
+    // Spatial index (ADR-015): lazily rebuilt whenever the entity list
+    // changes. The revision counter is bumped in MutateAndNotify so pick
+    // queries never scan the full list once the index is built.
+    private int _revision;
+    private SpatialIndex? _pickIndex;
+    private int _pickRevision = -1;
+    private const double PickCellSize = 8.0;
+
     /// <summary>
     /// Raised whenever the document's data changes (entities replaced, added,
     /// removed). View-level changes (layer visibility) do NOT raise this: a
@@ -68,6 +76,7 @@ public sealed class CadDocument
     /// </summary>
     private void MutateAndNotify()
     {
+        _revision++;
         MarkDataChanged();
     }
 
@@ -170,6 +179,22 @@ public sealed class CadDocument
     public IGeometryEntity? GetEntityById(long id) => _entities.FirstOrDefault(e => e.Id == id);
 
     /// <summary>
+    /// Monotonic revision of the geometry content, incremented by every
+    /// mutation (replace / insert / remove / replace-all). View-level changes
+    /// (layer visibility) do not touch it. UI layers use it to invalidate
+    /// derived caches (snap grids, overlay buffers, ...).
+    /// </summary>
+    public int GeometryRevision => _revision;
+
+    /// <summary>
+    /// How many entities the most recent <see cref="Pick"/> /
+    /// <see cref="QueryNear"/> took from the spatial index before the
+    /// visibility filter. Test hook proving that picking does not scan the
+    /// whole entity list (ADR-015).
+    /// </summary>
+    public int LastPickQueryCandidateCount { get; private set; }
+
+    /// <summary>
     /// Replaces an existing entity in place (same list position), keeping
     /// document ordering stable. Used by move/transform commands.
     /// </summary>
@@ -230,19 +255,52 @@ public sealed class CadDocument
     /// All entities whose geometry passes within <paramref name="tolerance"/>
     /// of <paramref name="p"/> and whose layer is visible. The tolerance is in
     /// world units — pass <c>viewport.PixelsToWorld(pickTolerancePx)</c>.
+    /// <summary>
+    /// Picks all interact-visible entities whose exact distance to the point
+    /// is within the tolerance. Uses a lazily-rebuilt uniform-grid spatial
+    /// index (docs/ADR-000/ADR-015-SpatialIndex.md) so picking does not scan
+    /// the entity list linearly for large documents.
     /// </summary>
     public List<IGeometryEntity> Pick(Point2 p, double tolerance)
     {
-        var hits = new List<IGeometryEntity>();
-        foreach (var e in _entities)
+        var index = GetOrBuildIndex();
+        var hits = index.Query(p, tolerance);
+        LastPickQueryCandidateCount = hits.Count;
+        // Preserve the document's interaction-visibility semantics.
+        return hits.Where(IsVisibleForInteraction).ToList();
+    }
+
+    /// <summary>
+    /// Responds with the interact-visible entities within <paramref name="radius"/>
+    /// of <paramref name="p"/> via the unbiased per-entity distance check of the
+    /// spatial index (same path as <see cref="Pick"/>). Used by the snap hover
+    /// pipeline (D13A) to pre-filter candidates near the cursor so the snap
+    /// engine never scans the full entity list on mouse move.
+    /// </summary>
+    public List<IGeometryEntity> QueryNear(Point2 p, double radius)
+    {
+        var index = GetOrBuildIndex();
+        var hits = index.Query(p, radius);
+        LastPickQueryCandidateCount = hits.Count;
+        return hits.Where(IsVisibleForInteraction).ToList();
+    }
+
+    private SpatialIndex GetOrBuildIndex()
+    {
+        int revision = _revision;
+        if (_pickIndex is not null && _pickRevision == revision)
         {
-            if (IsVisibleForInteraction(e) && e.DistanceToPoint(p) <= tolerance)
-            {
-                hits.Add(e);
-            }
+            return _pickIndex;
         }
 
-        return hits;
+        _pickIndex = new SpatialIndex(PickCellSize);
+        _pickRevision = revision;
+        foreach (var e in _entities)
+        {
+            _pickIndex.Add(e);
+        }
+
+        return _pickIndex;
     }
 }
 

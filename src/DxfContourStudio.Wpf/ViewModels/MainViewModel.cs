@@ -6,11 +6,14 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using DxfContourStudio.Application.Commands;
 using DxfContourStudio.Application.Documents;
+using DxfContourStudio.Application.Editing;
 using DxfContourStudio.Application.Exports;
 using DxfContourStudio.Application.Imports;
+using DxfContourStudio.Application.Interaction;
 using DxfContourStudio.Application.Localization;
 using DxfContourStudio.Application.Projects;
 using DxfContourStudio.Application.Selection;
+using DxfContourStudio.Application.Snapping;
 using DxfContourStudio.Core.Contours;
 using DxfContourStudio.Core.Diagnostics;
 using DxfContourStudio.Core.Geometry;
@@ -90,6 +93,33 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>Undo/redo stack; commands are created by this VM.</summary>
     public CommandHistory History { get; } = new();
 
+    /// <summary>
+    /// Interactive editing tool session (D17): owns the Join / Break / Trim /
+    /// Extend gesture state machine. The viewport control drives its pointer
+    /// events; this VM bridges its requests (status keys, undoable commands,
+    /// result selection) into the UI and the history stack. Tool gestures are
+    /// executed as undoable commands, so Ctrl+Z always restores the geometry.
+    /// </summary>
+    public EditToolSession ToolSession { get; }
+
+    /// <summary>Currently active tool (mirrors <see cref="ToolSession.ActiveTool"/>).</summary>
+    [ObservableProperty]
+    private ToolMode _currentTool = ToolMode.Select;
+
+    /// <summary>What the active tool wants to draw on the canvas (hover preview).</summary>
+    public ToolOverlayState ToolOverlay => ToolSession.Overlay;
+
+    /// <summary>Localized tool name shown in the status bar (empty in Select mode).</summary>
+    [ObservableProperty]
+    private string _toolStatusText = "";
+
+    /// <summary>True while the analysis panels are out of date after a geometry edit.</summary>
+    [ObservableProperty]
+    private bool _isAnalysisStale;
+
+    /// <summary>Monotonic analysis counter — bumped on every successful (re)analysis.</summary>
+    public int AnalysisRevision { get; private set; }
+
     /// <summary>Grouped rows shown in the properties sidebar.</summary>
     public ObservableCollection<PropertyGroupItem> PropertyGroups { get; } = [];
 
@@ -139,6 +169,9 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>The last import report (null before any import).</summary>
     private DxfImportReport? _lastReport;
 
+    /// <summary>Snap settings for the hover pipeline (session only, not persisted).</summary>
+    public SnapSettings SnapSettings { get; } = new();
+
     /// <summary>Current project file path (null until the user saves one).</summary>
     private string? _projectPath;
 
@@ -174,6 +207,87 @@ public sealed partial class MainViewModel : ObservableObject
     [ObservableProperty]
     private string? _fileNameTooltip;
 
+    /// <summary>Status-bar text for the snap pipeline ("捕捉：关" / "Snap: Endpoint").</summary>
+    [ObservableProperty]
+    private string _snapStatusText = "";
+
+    /// <summary>
+    /// The hover snap candidate of the current mouse position (D13A). Only the
+    /// overlay and the status bar consume it — the document is never modified
+    /// by hovering. Raised via <see cref="SnapChanged"/> for the viewport.
+    /// </summary>
+    public SnapResult? CurrentSnap { get; private set; }
+
+    /// <summary>Raised whenever <see cref="CurrentSnap"/> changes (viewport repaint).</summary>
+    public event Action? SnapChanged;
+
+    /// <summary>
+    /// Hysteresis layer between the raw snap engine and the UI (v0.3.0 UX
+    /// overhaul): a shown marker stays within the release radius instead of
+    /// flickering at the acquire boundary, and equal-priority candidates need
+    /// a minimum delta before they displace each other.
+    /// </summary>
+    private readonly SnapHoverController _snapHover = new(InteractionSettings.Default);
+
+    /// <summary>
+    /// The entity under the cursor in Select mode (v0.3.0 hover highlight).
+    /// Stable: the highlight survives cursor jitter until the previous
+    /// candidate is clearly no longer the closest one. Null while a tool
+    /// owns the mouse (the tool overlay shows its own highlight).
+    /// </summary>
+    public long? HoveredEntityId { get; private set; }
+
+    /// <summary>Raised whenever <see cref="HoveredEntityId"/> changes (viewport repaint).</summary>
+    public event Action? HoverChanged;
+
+    /// <summary>Tracks the hover highlight across cursor moves (v0.3.0 stability).</summary>
+    private long? _hoverPrevId;
+    private Point2 _hoverPrevCursor;
+
+    private const double HoverStabilityPx = 2.0;
+
+    /// <summary>Master snap toggle (Tools → 捕捉 / Snap, F3). Session only.</summary>
+    [ObservableProperty]
+    private bool _snapMasterEnabled = true;
+
+    partial void OnSnapMasterEnabledChanged(bool value)
+    {
+        SnapSettings.Enabled = value;
+        if (!value)
+        {
+            ClearSnap();
+        }
+    }
+
+    [ObservableProperty]
+    private bool _snapEndpointEnabled = true;
+
+    [ObservableProperty]
+    private bool _snapMidpointEnabled = true;
+
+    [ObservableProperty]
+    private bool _snapCenterEnabled = true;
+
+    [ObservableProperty]
+    private bool _snapIntersectionEnabled = true;
+
+    [ObservableProperty]
+    private bool _snapNearestEnabled;
+
+    partial void OnSnapEndpointEnabledChanged(bool value) => SnapSettings.EndpointEnabled = value;
+
+    partial void OnSnapMidpointEnabledChanged(bool value) => SnapSettings.MidpointEnabled = value;
+
+    partial void OnSnapCenterEnabledChanged(bool value) => SnapSettings.CenterEnabled = value;
+
+    partial void OnSnapIntersectionEnabledChanged(bool value) => SnapSettings.IntersectionEnabled = value;
+
+    partial void OnSnapNearestEnabledChanged(bool value) => SnapSettings.NearestEnabled = value;
+
+    /// <summary>F3: flips the master snap switch.</summary>
+    [RelayCommand]
+    private void ToggleSnap() => SnapMasterEnabled = !SnapMasterEnabled;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(EmptyViewportVisible))]
     private bool _isOpen;
@@ -205,11 +319,133 @@ public sealed partial class MainViewModel : ObservableObject
     {
         _unsavedGuard = unsavedGuard;
         _importService = new DxfImportService(new AcadSharpDxfReader());
+        ToolSession = new EditToolSession(Document, GeometryTolerance.Default);
+        ToolSession.OverlayChanged += OnToolSessionOverlayChanged;
+        ToolSession.ActiveToolChanged += OnToolSessionActiveToolChanged;
+        ToolSession.StatusKeyRequested += OnToolSessionStatusKey;
+        ToolSession.CommandRequested += OnToolSessionCommandRequested;
+        ToolSession.ResultEntitySelected += OnToolSessionResultSelected;
         Selection.SelectionChanged += OnSelectionChanged;
         History.Changed += OnHistoryChanged;
         Document.DataChanged += OnDocumentDataChanged;
         LocalizationService.Instance.CultureChanged += OnCultureChanged;
         RefreshAllLocalized();
+    }
+
+    // ---- tool session bridge (D17) -------------------------------------------
+
+    /// <summary>Overlay changed → the canvas repaints the tool preview.</summary>
+    private void OnToolSessionOverlayChanged()
+    {
+        OnPropertyChanged(nameof(ToolOverlay));
+    }
+
+    /// <summary>Tool changed (activation, completion, document swap) → the UI mirrors it.</summary>
+    private void OnToolSessionActiveToolChanged()
+    {
+        CurrentTool = ToolSession.ActiveTool;
+        RefreshToolStatusText();
+    }
+
+    /// <summary>The session requests a localized status line (key, never text).</summary>
+    private void OnToolSessionStatusKey(string key) => StatusText = L(key);
+
+    /// <summary>
+    /// Executes a tool-requested undoable command. A refused command keeps the
+    /// tool active for retry and reports the engine message; a successful one
+    /// switches back to Select through the session's completion flow.
+    /// </summary>
+    private void OnToolSessionCommandRequested(ICommand command)
+    {
+        try
+        {
+            History.Execute(command);
+            ToolSession.NotifyCommandCompleted(true);
+        }
+        catch (Exception ex)
+        {
+            ToolSession.NotifyCommandCompleted(false);
+            StatusText = ex.Message;
+        }
+    }
+
+    /// <summary>Selects the entity that survived a tool commit (result id).</summary>
+    private void OnToolSessionResultSelected(long id)
+    {
+        if (Document.GetEntityById(id) is not null)
+        {
+            Selection.SelectSingle(id);
+        }
+    }
+
+    /// <summary>Activates a tool (Select = no tool owns the mouse). XAML passes the enum name.</summary>
+    [RelayCommand]
+    private void ActivateTool(string mode)
+    {
+        if (Enum.TryParse(mode, out ToolMode parsed))
+        {
+            ActivateToolCore(parsed);
+        }
+    }
+
+    private void ActivateToolCore(ToolMode mode)
+    {
+        ToolSession.ActivateTool(mode);
+        CurrentTool = mode;
+        RefreshToolStatusText();
+        if (mode != ToolMode.Select)
+        {
+            // v0.3.0: a tool owns the canvas but the selection survives the
+            // switch — the viewport simply hides grips while a tool is
+            // active, so the user does not lose their pick.
+            ClearSnap();
+            HoveredEntityId = null;
+            HoverChanged?.Invoke();
+        }
+    }
+
+    /// <summary>Esc: cancels the pending gesture, then leaves the tool, then clears the selection.</summary>
+    [RelayCommand]
+    private void CancelTool()
+    {
+        if (ToolSession.Cancel())
+        {
+            return;
+        }
+
+        if (CurrentTool != ToolMode.Select)
+        {
+            ActivateToolCore(ToolMode.Select);
+            return;
+        }
+
+        if (IsNodeEditing)
+        {
+            CancelNodeEdit();
+            return;
+        }
+
+        if (Selection.Count > 0)
+        {
+            StatusText = L(LocalizationKeys.StatusCleared);
+        }
+
+        Selection.Clear();
+        ClearSnap();
+    }
+
+    private void RefreshToolStatusText()
+    {
+        ToolStatusText = CurrentTool switch
+        {
+            ToolMode.Select => "",
+            ToolMode.NodeEdit => L(LocalizationKeys.ToolNameNodeEdit),
+            ToolMode.Join => L(LocalizationKeys.ToolNameJoin),
+            ToolMode.Break => L(LocalizationKeys.ToolNameBreak),
+            ToolMode.Trim => L(LocalizationKeys.ToolNameTrim),
+            ToolMode.Extend => L(LocalizationKeys.ToolNameExtend),
+            _ => "",
+        };
     }
 
     // ---- localization ------------------------------------------------------
@@ -230,10 +466,35 @@ public sealed partial class MainViewModel : ObservableObject
         RefreshCursorStatus(Point2.Origin);
         RefreshPropertyRows();
         RefreshImportReport();
+        RefreshSnapStatusText();
         if (AnalysisResult is not null)
         {
-            // Rebuild culture-dependent contour / diagnostics text.
-            RefreshAnalysis();
+            if (IsAnalysisStale)
+            {
+                // The panels stay in their stale empty state; only the banner
+                // and status text are culture-dependent.
+                OnPropertyChanged(nameof(IsAnalysisStale));
+            }
+            else
+            {
+                // Rebuild culture-dependent contour / diagnostics text.
+                RefreshAnalysis();
+            }
+        }
+
+        RefreshToolStatusText();
+    }
+
+    /// <summary>Rebuilds the snap status line after a culture switch.</summary>
+    private void RefreshSnapStatusText()
+    {
+        if (SnapMasterEnabled && CurrentSnap is { } snap)
+        {
+            SetSnap(snap);
+        }
+        else
+        {
+            SnapStatusText = L(LocalizationKeys.StatusSnapOff);
         }
     }
 
@@ -289,6 +550,7 @@ public sealed partial class MainViewModel : ObservableObject
             _projectPath = null;
             History.Clear();
             Selection.Clear();
+            ToolSession.ClearToolState();
             ClearAnalysis();
             RefreshLayers();
             Document.IsDirty = false;
@@ -407,12 +669,440 @@ public sealed partial class MainViewModel : ObservableObject
     [RelayCommand]
     private void ClearSelection()
     {
+        // Esc during an active node drag cancels the gesture instead of
+        // clearing the selection — the dragged entity stays selected.
+        if (IsNodeEditing)
+        {
+            CancelNodeEdit();
+            return;
+        }
+
         if (Selection.Count > 0)
         {
             StatusText = L(LocalizationKeys.StatusCleared);
         }
 
         Selection.Clear();
+        ClearSnap();
+    }
+
+    // ---- geometry editing (D4–D7 commands surfaced to the UI) ----------------
+
+    private bool CanJoinSelected() => Selection.Count >= 2;
+
+    /// <summary>Builds the selected entity list in document order.</summary>
+    private List<long> SelectedIdsInDocumentOrder()
+    {
+        var order = new Dictionary<long, int>();
+        var entities = Document.Entities;
+        for (int i = 0; i < entities.Count; i++)
+        {
+            order[entities[i].Id] = i;
+        }
+
+        var selected = Selection.Ids.Where(order.ContainsKey).ToList();
+        selected.Sort((a, b) => order[a].CompareTo(order[b]));
+        return selected;
+    }
+
+    /// <summary>
+    /// Joins all selected entities (document order) into one mixed polyline
+    /// as a single undoable transaction. Refused with a status line when the
+    /// chain is not endpoint-adjacent.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanJoinSelected))]
+    private void JoinSelected()
+    {
+        List<long> ids = SelectedIdsInDocumentOrder();
+        if (ids.Count < 2)
+        {
+            StatusText = L(LocalizationKeys.StatusEditNeedTwo);
+            return;
+        }
+
+        try
+        {
+            History.Execute(new JoinManyCommand(Document, ids, GeometryTolerance.Default));
+        }
+        catch (ArgumentException ex)
+        {
+            StatusText = ex.Message;
+            return;
+        }
+
+        Selection.Clear();
+        Selection.SelectSingle(ids[0]);
+        StatusText = L(LocalizationKeys.StatusJoined, ids.Count);
+        RefreshStatusCounts();
+    }
+
+    private bool CanBreakSelected() => Selection.Count == 1;
+
+    /// <summary>
+    /// Breaks the single selected entity into two halves at its parameter
+    /// midpoint (undoable). Used by the Edit → Break in Half action.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanBreakSelected))]
+    private void BreakSelected()
+    {
+        long id = Selection.Ids.FirstOrDefault();
+        IGeometryEntity? entity = Document.GetEntityById(id);
+        if (entity is null)
+        {
+            return;
+        }
+
+        var midPoint = entity.PointAtParameter(0.5);
+        try
+        {
+            History.Execute(new BreakEntityCommand(Document, id, midPoint, GeometryTolerance.Default.JoinTolerance));
+        }
+        catch (ArgumentException ex)
+        {
+            StatusText = ex.Message;
+            return;
+        }
+
+        Selection.Clear();
+        StatusText = L(LocalizationKeys.StatusBroken);
+        RefreshStatusCounts();
+    }
+
+    private bool CanTrimSelected() => Selection.Count >= 2;
+
+    /// <summary>Trims the primary (first in document order) with the second as boundary.</summary>
+    private void TrimCore(TrimSide side)
+    {
+        List<long> ids = SelectedIdsInDocumentOrder();
+        if (ids.Count < 2)
+        {
+            StatusText = L(LocalizationKeys.StatusEditNeedLine);
+            return;
+        }
+
+        try
+        {
+            History.Execute(new TrimExtendCommand(Document, ids[0], ids[1], side, GeometryTolerance.Default.JoinTolerance));
+        }
+        catch (ArgumentException ex)
+        {
+            StatusText = ex.Message;
+            return;
+        }
+
+        Selection.Clear();
+        Selection.SelectSingle(ids[0]);
+        StatusText = L(LocalizationKeys.StatusTrimmed);
+        RefreshStatusCounts();
+    }
+
+    /// <summary>Edit → Trim Start: keeps the primary's start, trims its end to the boundary.</summary>
+    [RelayCommand(CanExecute = nameof(CanTrimSelected))]
+    private void TrimSelectedStart() => TrimCore(TrimSide.KeepStart);
+
+    /// <summary>Edit → Trim End: keeps the primary's end, trims its start to the boundary.</summary>
+    [RelayCommand(CanExecute = nameof(CanTrimSelected))]
+    private void TrimSelectedEnd() => TrimCore(TrimSide.KeepEnd);
+
+    // ---- extend (D13A): unique-boundary extension via the existing engine ----
+
+    /// <summary>
+    /// Extends the single selected entity towards the unique qualifying
+    /// boundary in the document (other visible entities). Ambiguity or the
+    /// absence of any qualifying boundary leaves the document untouched and
+    /// reports a localized status message.
+    /// </summary>
+    private bool CanExtendSelected() =>
+        Selection.Count == 1 && Document.GetEntityById(Selection.Ids.FirstOrDefault()) is
+            LineGeometry or ArcGeometry or PolylineGeometry;
+
+    [RelayCommand(CanExecute = nameof(CanExtendSelected))]
+    private void ExtendSelected()
+    {
+        long id = Selection.Ids.FirstOrDefault();
+        IGeometryEntity? target = Document.GetEntityById(id);
+        if (target is null)
+        {
+            return;
+        }
+
+        List<IGeometryEntity> candidates = OtherBoundaryCandidates(target);
+        var found = ExtendCandidateFinder.FindUniqueExtension(target, candidates, GeometryTolerance.Default.JoinTolerance);
+        if (found is null)
+        {
+            // No qualifying boundary, or several (ambiguous) — never pick at random.
+            StatusText = L(LocalizationKeys.StatusNoUniqueExtendBoundary);
+            return;
+        }
+
+        try
+        {
+            History.Execute(new TrimExtendCommand(Document, id, found.Value.Boundary.Id, found.Value.Side, GeometryTolerance.Default.JoinTolerance));
+        }
+        catch (ArgumentException ex)
+        {
+            StatusText = ex.Message;
+            return;
+        }
+
+        Selection.SelectSingle(id);
+        StatusText = L(LocalizationKeys.StatusExtended);
+        RefreshStatusCounts();
+    }
+
+    /// <summary>
+    /// Other interact-visible entities, fetched through the document's
+    /// spatial index (bounds-covered query) so extension never scans the full
+    /// document list more than once per invocation.
+    /// </summary>
+    private List<IGeometryEntity> OtherBoundaryCandidates(IGeometryEntity target)
+    {
+        double radius = Document.OverallBounds is { } b ? b.DiagonalLength * 2 + 1 : 4096.0;
+        return Document.QueryNear(target.Bounds.Center, radius)
+            .Where(e => e.Id != target.Id)
+            .ToList();
+    }
+
+    // ---- snap hover pipeline (D13A) -----------------------------------------
+
+    /// <summary>
+    /// Resolves the current hover snap candidate from a world-space cursor
+    /// position. Only runs while the master switch is on; candidates come
+    /// from the document spatial index, then the pure snap engine picks the
+    /// best kind by priority. The document is never modified.
+    /// </summary>
+    public void UpdateSnap(Point2 worldPoint)
+    {
+        if (!SnapSettings.Enabled || Document.Entities.Count == 0)
+        {
+            _snapHover.Reset();
+            SetSnap(null);
+            return;
+        }
+
+        double toleranceWorld = SnapSettings.PixelTolerance > 0
+            ? SnapSettings.PixelTolerance / Viewport.PixelsPerWorld
+            : 0;
+        var candidates = Document.QueryNear(worldPoint, toleranceWorld);
+        SnapResult result = SnapEngine.Snap(candidates, worldPoint, toleranceWorld, GeometryTolerance.Default, SnapSettings.EnabledKinds);
+        _snapHover.Update(worldPoint, result, Viewport.PixelsPerWorld);
+        SetSnap(_snapHover.Current);
+    }
+
+    /// <summary>Clears the snap candidate (Esc / tool cancel / mouse leave / document change).</summary>
+    public void ClearSnap()
+    {
+        _snapHover.Reset();
+        SetSnap(null);
+    }
+
+    private void SetSnap(SnapResult? snap)
+    {
+        bool changed = !Equals(CurrentSnap, snap);
+        CurrentSnap = snap;
+        if (changed)
+        {
+            SnapChanged?.Invoke();
+        }
+
+        if (!SnapSettings.Enabled || snap is null)
+        {
+            if (SnapStatusText != SnapOffText)
+            {
+                SnapStatusText = SnapOffText;
+            }
+
+            return;
+        }
+
+        string kindText = snap.Value.Kind switch
+        {
+            SnapKind.Endpoint => L(LocalizationKeys.SnapKindEndpoint),
+            SnapKind.Midpoint => L(LocalizationKeys.SnapKindMidpoint),
+            SnapKind.Center => L(LocalizationKeys.SnapKindCenter),
+            SnapKind.Intersection => L(LocalizationKeys.SnapKindIntersection),
+            _ => L(LocalizationKeys.SnapKindNearest),
+        };
+        SnapStatusText = L(LocalizationKeys.StatusSnapActive, kindText);
+    }
+
+    private string SnapOffText => L(LocalizationKeys.StatusSnapOff);
+
+    // ---- node-edit session (D14) --------------------------------------------
+
+    /// <summary>
+    /// The entity state currently being edited by the active grip drag
+    /// (null when idle). The document is never mutated per mouse move — this
+    /// is a preview only; one <see cref="Commands.NodeEditCommand"/> commits
+    /// the whole gesture on mouse-up.
+    /// </summary>
+    public IGeometryEntity? NodeEditPreview { get; private set; }
+
+    /// <summary>True while a node drag gesture is active (Escape cancels it).</summary>
+    public bool IsNodeEditing { get; private set; }
+
+    /// <summary>Raised whenever <see cref="NodeEditPreview"/> or the session state changes.</summary>
+    public event Action? NodeEditPreviewChanged;
+
+    private IGeometryEntity? _nodeEditOriginal;
+    private GripKind _nodeEditKind;
+    private int _nodeEditParameter;
+    private Point2 _nodeEditGripStartWorld;
+    private bool _nodeEditPreviewUpdated;
+    private bool _nodeEditRefused;
+
+    /// <summary>Starts a node drag on the given grip (called by the viewport on grab).</summary>
+    public void BeginNodeEdit(GripDescriptor grip)
+    {
+        if (!grip.Enabled)
+        {
+            return;
+        }
+
+        IGeometryEntity? entity = Document.GetEntityById(grip.EntityId);
+        if (entity is null)
+        {
+            return;
+        }
+
+        _nodeEditOriginal = entity;
+        _nodeEditKind = grip.Kind;
+        _nodeEditParameter = grip.Parameter;
+        _nodeEditGripStartWorld = grip.WorldPosition;
+        _nodeEditPreviewUpdated = false;
+        _nodeEditRefused = false;
+        NodeEditPreview = null;
+        IsNodeEditing = true;
+        NodeEditPreviewChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Applies the drag position (snap-filtered, excluding the grabbed grip
+    /// itself) to the current session. Refused engine results keep the last
+    /// preview — they are reported at commit time.
+    /// </summary>
+    public void NodeEditDrag(Point2 worldPoint)
+    {
+        if (!IsNodeEditing || _nodeEditOriginal is null)
+        {
+            return;
+        }
+
+        Point2 target = SnapForNodeDrag(worldPoint) ?? worldPoint;
+        IGeometryEntity? edited = ComputeNodeEdit(_nodeEditOriginal, target);
+        if (edited is null)
+        {
+            _nodeEditRefused = true;
+            return;
+        }
+
+        if (NodeEditValidator.IsValid(edited))
+        {
+            NodeEditPreview = edited;
+            _nodeEditPreviewUpdated = true;
+            NodeEditPreviewChanged?.Invoke();
+        }
+        else
+        {
+            _nodeEditRefused = true;
+        }
+    }
+
+    /// <summary>Commits the current preview as exactly one undoable command.</summary>
+    public void CommitNodeEdit()
+    {
+        if (!IsNodeEditing)
+        {
+            return;
+        }
+
+        if (!_nodeEditPreviewUpdated || NodeEditPreview is not { } edited)
+        {
+            // A refused target mid-gesture is reported; a click without any
+            // real move is dropped silently.
+            bool refused = _nodeEditRefused;
+            CancelNodeEdit();
+            if (refused)
+            {
+                StatusText = L(LocalizationKeys.StatusNodeEditInvalid);
+            }
+
+            return;
+        }
+
+        if (!NodeEditValidator.IsValid(edited))
+        {
+            CancelNodeEdit();
+            StatusText = L(LocalizationKeys.StatusNodeEditInvalid);
+            return;
+        }
+
+        History.Execute(new NodeEditCommand(Document, _nodeEditOriginal!, edited, L(LocalizationKeys.StatusNodeEditUpdated)));
+        StatusText = L(LocalizationKeys.StatusNodeEditUpdated);
+        RefreshStatusCounts();
+        CancelNodeEdit();
+    }
+
+    /// <summary>Cancels the gesture (Esc / capture loss): the original geometry stays untouched.</summary>
+    public void CancelNodeEdit()
+    {
+        IsNodeEditing = false;
+        _nodeEditOriginal = null;
+        NodeEditPreview = null;
+        _nodeEditPreviewUpdated = false;
+        _nodeEditRefused = false;
+        NodeEditPreviewChanged?.Invoke();
+    }
+
+    /// <summary>Maps a grip onto the node-edit engine call (circle/arc special grips included).</summary>
+    private IGeometryEntity? ComputeNodeEdit(IGeometryEntity entity, Point2 target)
+    {
+        return _nodeEditKind switch
+        {
+            GripKind.LineStart => NodeEditEngine.MoveNode(entity, 0, target),
+            GripKind.LineEnd => NodeEditEngine.MoveNode(entity, 1, target),
+            GripKind.CircleCenter => NodeEditEngine.MoveCircleCenter((CircleGeometry)entity, target),
+            GripKind.CircleRadius => NodeEditEngine.SetCircleRadius(
+                (CircleGeometry)entity, target.DistanceTo(((CircleGeometry)entity).Center)),
+            GripKind.ArcCenter => NodeEditEngine.TranslateArcCenter(
+                (ArcGeometry)entity, new Point2(target.X - _nodeEditGripStartWorld.X, target.Y - _nodeEditGripStartWorld.Y)),
+            GripKind.ArcStart => NodeEditEngine.MoveNode(entity, 0, target),
+            GripKind.ArcEnd => NodeEditEngine.MoveNode(entity, 1, target),
+            GripKind.PolylineVertex => NodeEditEngine.MoveNode(entity, _nodeEditParameter, target),
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// Snap resolution for node dragging: the grabbed grip point itself is
+    /// excluded so the cursor is never glued back to its own origin; other
+    /// points of the same entity stay legal (e.g. closing a polyline vertex).
+    /// </summary>
+    private Point2? SnapForNodeDrag(Point2 worldPoint)
+    {
+        if (!SnapSettings.Enabled || Document.Entities.Count == 0)
+        {
+            return null;
+        }
+
+        double toleranceWorld = SnapSettings.PixelTolerance > 0
+            ? SnapSettings.PixelTolerance / Viewport.PixelsPerWorld
+            : 0;
+        if (toleranceWorld <= 0)
+        {
+            return null;
+        }
+
+        var candidates = Document.QueryNear(worldPoint, toleranceWorld);
+        SnapResult result = SnapEngine.Snap(candidates, worldPoint, toleranceWorld, GeometryTolerance.Default, SnapSettings.EnabledKinds);
+        if (!result.IsValid)
+        {
+            return null;
+        }
+
+        return result.WorldPoint.DistanceTo(_nodeEditGripStartWorld) < toleranceWorld
+            ? null
+            : result.WorldPoint;
     }
 
     // ---- contour analysis -----------------------------------------------------
@@ -449,6 +1139,14 @@ public sealed partial class MainViewModel : ObservableObject
                 AnalysisResult.Contours.Count,
                 AnalysisResult.ClosedCount,
                 AnalysisResult.OpenCount);
+        MarkAnalysisFresh();
+    }
+
+    /// <summary>Bumps the revision and clears the stale flag after a successful analysis.</summary>
+    private void MarkAnalysisFresh()
+    {
+        IsAnalysisStale = false;
+        AnalysisRevision++;
     }
 
     /// <summary>True while a repairable (auto-repairable) gap row is selected.</summary>
@@ -470,6 +1168,7 @@ public sealed partial class MainViewModel : ObservableObject
         History.Execute(new RepairGapCommand(Document, gap));
         StatusText = L(LocalizationKeys.StatusGapRepaired);
         RefreshAnalysis();
+        MarkAnalysisFresh();
         OnPropertyChanged(nameof(RepairSelectedGapCommand));
     }
 
@@ -498,6 +1197,7 @@ public sealed partial class MainViewModel : ObservableObject
         History.Execute(batch);
         StatusText = L(LocalizationKeys.StatusBatchRepaired, batch.GapCount);
         RefreshAnalysis();
+        MarkAnalysisFresh();
         OnPropertyChanged(nameof(RepairAllSafeGapsCommand));
     }
 
@@ -604,6 +1304,7 @@ public sealed partial class MainViewModel : ObservableObject
     private void ClearAnalysis()
     {
         AnalysisResult = null;
+        IsAnalysisStale = false;
         ContourItems.Clear();
         DiagnosticItems.Clear();
         SelectedDiagnostic = null;
@@ -1028,6 +1729,25 @@ public sealed partial class MainViewModel : ObservableObject
     /// <summary>Clears the selection (click on empty space / Esc).</summary>
     public void OnEmptyClick() => Selection.Clear();
 
+    /// <summary>
+    /// Commits a completed box drag: window (left→right, fully contained) or
+    /// crossing (right→left, touched) selection; Ctrl = additive.
+    /// </summary>
+    public void OnBoxSelectionCommitted(Bounds box, bool additive, bool crossing)
+    {
+        IReadOnlyList<long> ids = BoxSelector.SelectIds(Document, box, crossing);
+        if (additive)
+        {
+            Selection.AddRange(ids);
+        }
+        else
+        {
+            Selection.ReplaceWith(ids);
+        }
+
+        RefreshStatusCounts();
+    }
+
     /// <summary>Commits a completed move gesture as exactly one undoable command.</summary>
     public void OnMoveCommitted(IReadOnlyList<long> ids, Vector2 delta)
     {
@@ -1036,8 +1756,60 @@ public sealed partial class MainViewModel : ObservableObject
         RefreshStatusCounts();
     }
 
-    /// <summary>Updates the cursor status line with the current world position.</summary>
-    public void OnCursorChanged(Point2 p) => RefreshCursorStatus(p);
+    /// <summary>Updates the cursor status line and the snap candidate with the current world position.</summary>
+    public void OnCursorChanged(Point2 p)
+    {
+        if (IsNodeEditing)
+        {
+            // While dragging a grip the same motion feeds the drag preview
+            // (snap with self-exclusion) instead of the hover pipeline.
+            NodeEditDrag(p);
+            return;
+        }
+
+        RefreshCursorStatus(p);
+        UpdateSnap(p);
+        UpdateHover(p);
+        // In tool modes the hover preview is driven by the viewport control
+        // (it owns the pick tolerance and the mouse events); the VM only
+        // keeps the snap pipeline alive so the session sees the candidate.
+    }
+
+    /// <summary>
+    /// Select-mode hover highlight with stability tolerance (v0.3.0): the
+    /// highlighted entity only changes when another candidate wins by a
+    /// clear margin, so jitter at a shared edge does not flicker the glow.
+    /// </summary>
+    private void UpdateHover(Point2 p)
+    {
+        bool toolActive = CurrentTool is ToolMode.Join or ToolMode.Break or ToolMode.Trim or ToolMode.Extend;
+        double hitTolerancePx = InteractionSettings.Default.HitTolerancePx;
+        IGeometryEntity? best = !toolActive && Document.Entities.Count > 0
+            ? HitTester.PickClosest(Document, p, hitTolerancePx, Viewport)
+            : null;
+
+        long? next = best?.Id;
+        if (next is null
+            && _hoverPrevId is not null
+            && Document.GetEntityById(_hoverPrevId.Value) is { } prev
+            && p.DistanceTo(_hoverPrevCursor) <= Viewport.PixelsToWorld(hitTolerancePx + HoverStabilityPx))
+        {
+            // Cursor jittered just outside the pick radius while still close
+            // to the previous hover — keep the highlight until clearly away.
+            next = _hoverPrevId;
+        }
+
+        if (HoveredEntityId == next)
+        {
+            _hoverPrevCursor = p;
+            return;
+        }
+
+        HoveredEntityId = next;
+        _hoverPrevId = next;
+        _hoverPrevCursor = p;
+        HoverChanged?.Invoke();
+    }
 
     // ---- internals -----------------------------------------------------------
 
@@ -1054,9 +1826,36 @@ public sealed partial class MainViewModel : ObservableObject
         PruneSelectionToDocument();
         if (AnalysisResult is not null)
         {
-            // Undo/redo can change geometry → keep panels and overlay in sync.
-            RefreshAnalysis();
+            // Product semantics: any geometry change (undo/redo, move, delete,
+            // node edit, tool commands) makes the previous analysis results
+            // stale. The result object is kept (re-analysis is one click),
+            // but every panel row and viewport overlay marker is dropped and
+            // the stale banner appears. Gap repair is the exception — it
+            // re-runs the analysis itself (see RepairSelectedGap).
+            MarkAnalysisStale();
         }
+    }
+
+    /// <summary>Marks the current analysis as out of date and clears its overlays/rows.</summary>
+    private void MarkAnalysisStale()
+    {
+        if (AnalysisResult is null)
+        {
+            return;
+        }
+
+        IsAnalysisStale = true;
+        SelectedDiagnostic = null;
+        ContourItems.Clear();
+        DiagnosticItems.Clear();
+        CurrentDiagnostics = null;
+        CurrentGeometryDiagnostics = null;
+        OnPropertyChanged(nameof(CurrentDiagnostics));
+        OnPropertyChanged(nameof(CurrentGeometryDiagnostics));
+        OnPropertyChanged(nameof(ContoursEmptyVisible));
+        OnPropertyChanged(nameof(DiagnosticsEmptyVisible));
+        RepairSelectedGapCommand.NotifyCanExecuteChanged();
+        RepairAllSafeGapsCommand.NotifyCanExecuteChanged();
     }
 
     private void PruneSelectionToDocument()
@@ -1071,6 +1870,10 @@ public sealed partial class MainViewModel : ObservableObject
         RefreshSelectedCount();
         RefreshZoomStatus();
         DeleteCommand.NotifyCanExecuteChanged();
+        JoinSelectedCommand.NotifyCanExecuteChanged();
+        BreakSelectedCommand.NotifyCanExecuteChanged();
+        TrimSelectedStartCommand.NotifyCanExecuteChanged();
+        TrimSelectedEndCommand.NotifyCanExecuteChanged();
         UndoCommand.NotifyCanExecuteChanged();
         RedoCommand.NotifyCanExecuteChanged();
         SelectAllCommand.NotifyCanExecuteChanged();
@@ -1080,6 +1883,7 @@ public sealed partial class MainViewModel : ObservableObject
         SaveProjectCommand.NotifyCanExecuteChanged();
         SaveProjectAsCommand.NotifyCanExecuteChanged();
         ExportCleanDxfCommand.NotifyCanExecuteChanged();
+        ExtendSelectedCommand.NotifyCanExecuteChanged();
         NextAnomalyCommand.NotifyCanExecuteChanged();
         PrevAnomalyCommand.NotifyCanExecuteChanged();
     }
@@ -1186,6 +1990,10 @@ public sealed partial class MainViewModel : ObservableObject
     private void OnDocumentDataChanged()
     {
         UpdateWindowTitle();
+        // Geometry may have moved — a stale snap candidate is meaningless.
+        ClearSnap();
+        // A pending tool gesture may reference entities that just changed.
+        ToolSession.OnDocumentChanged();
     }
 
     private void UpdateWindowTitle()

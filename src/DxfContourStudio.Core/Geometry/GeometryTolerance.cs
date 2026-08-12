@@ -78,4 +78,40 @@ public sealed class GeometryTolerance
     /// degenerate / very small contour. Default 1e-6 mm².
     /// </summary>
     public double MinimumAreaTolerance { get; set; } = 1e-6;
+
+    /// <summary>
+    /// Distance tolerance used by the intersection engine to decide whether
+    /// two candidate points coincide (e.g. a tangent contact collapses two
+    /// prospective crossings into one). Default 1e-6 mm, same order as
+    /// <see cref="PointEqualityTolerance"/>.
+    /// </summary>
+    public double IntersectionTolerance { get; set; } = 1e-6;
+
+    /// <summary>
+    /// Relative tolerance on curve parameters (line t in [0,1], arc angles):
+    /// endpoints are considered included when the parameter is within this
+    /// range of the interval edge. Default 1e-9.
+    /// </summary>
+    public double ParameterTolerance { get; set; } = 1e-9;
+
+    /// <summary>
+    /// Distance tolerance used to classify a contact as a geometric tangency
+    /// (supporting circles distance within this of r1+r2 resp. |r1−r2|).
+    /// Default 1e-6 mm.
+    /// </summary>
+    public double TangencyTolerance { get; set; } = 1e-6;
+
+    /// <summary>
+    /// Tolerance used by the join engine: two endpoints within this distance
+    /// (in millimeters) can be joined into a single continuous path. Default
+    /// 0.05 mm, consistent with <see cref="EndpointSnapTolerance"/>.
+    /// </summary>
+    public double JoinTolerance { get; set; } = 0.05;
+
+    /// <summary>
+    /// Maximum extend distance in millimeters used as a safety bound when a
+    /// valid boundary intersection cannot be found within this distance.
+    /// Default 1000 mm.
+    /// </summary>
+    public double MaxExtendDistance { get; set; } = 1000.0;
 }

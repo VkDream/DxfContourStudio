@@ -137,7 +137,7 @@ dotnet build DxfContourStudio.sln -c Release
   export round-trip, golden corpus, view-model integration, STA offscreen
   render regression.
 
-Current baseline: **232 tests passing** (Debug + Release, 0 warnings /
+Current baseline: **369 tests passing** (Debug + Release, 0 warnings /
 0 errors). See `docs/TESTING.md`.
 
 ## Test Corpus
@@ -148,12 +148,11 @@ with bulges, mixed layers and unitless files. See `docs/TEST_CORPUS.md`.
 
 ## Known Limitations
 
-- Self-intersection detection currently covers **line-line** only;
-  line-arc / arc-arc are not supported yet.
+- Self-intersection analysis covers line/arc/polyline runs; tangent touches
+  are intentionally not reported as intersections.
 - R12 export is offered but not yet manually exercised end-to-end.
-- Rendering at 100k+ entities is still a full redraw per frame (no batching).
-- This is **not** a complete CAD/CAM system: no Trim / Extend / Offset /
-  Fillet, no machine / laser / PLC / GCode integration.
+- This is **not** a complete CAD/CAM system: no Offset / Fillet / Chamfer,
+  no machine / laser / PLC / GCode integration.
 
 ## Roadmap
 

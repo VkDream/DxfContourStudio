@@ -56,7 +56,7 @@ public readonly record struct LineSegmentIntersectionResult(
 /// only when the caller asks for it (the self-intersection analyzer explicitly
 /// excludes adjacent-shared endpoints).
 /// </summary>
-public static class IntersectionEngine
+public static partial class IntersectionEngine
 {
     /// <summary>
     /// Intersects segment [<paramref name="a0"/>, <paramref name="a1"/>] with

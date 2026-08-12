@@ -17,9 +17,14 @@
         <KeyBinding Key="Z" Modifiers="Control" Command="{Binding UndoCommand}"/>
         <KeyBinding Key="Y" Modifiers="Control" Command="{Binding RedoCommand}"/>
         <KeyBinding Key="A" Modifiers="Control" Command="{Binding SelectAllCommand}"/>
+        <KeyBinding Key="J" Modifiers="Control" Command="{Binding ActivateToolCommand}" CommandParameter="Join"/>
+        <KeyBinding Key="B" Modifiers="Control" Command="{Binding ActivateToolCommand}" CommandParameter="Break"/>
+        <KeyBinding Key="T" Modifiers="Control" Command="{Binding ActivateToolCommand}" CommandParameter="Trim"/>
+        <KeyBinding Key="E" Modifiers="Control" Command="{Binding ActivateToolCommand}" CommandParameter="Extend"/>
         <KeyBinding Key="Delete" Command="{Binding DeleteCommand}"/>
-        <KeyBinding Key="Escape" Command="{Binding ClearSelectionCommand}"/>
+        <KeyBinding Key="Escape" Command="{Binding CancelToolCommand}"/>
         <KeyBinding Key="F" Command="{Binding ZoomToFitCommand}"/>
+        <KeyBinding Key="F3" Command="{Binding ToggleSnapCommand}"/>
     </Window.InputBindings>
 
     <!--
@@ -54,6 +59,19 @@
                 <MenuItem Header="{loc:Loc Menu.Edit.Redo}" InputGestureText="Ctrl+Y" Command="{Binding RedoCommand}"/>
                 <MenuItem Header="{loc:Loc Menu.Edit.Delete}" InputGestureText="Del" Command="{Binding DeleteCommand}"/>
                 <Separator/>
+                <MenuItem Header="{loc:Loc Menu.Edit.Tools.Select}"
+                          Command="{Binding ActivateToolCommand}" CommandParameter="Select"/>
+                <MenuItem Header="{loc:Loc Menu.Edit.Tools.NodeEdit}"
+                          Command="{Binding ActivateToolCommand}" CommandParameter="NodeEdit"/>
+                <MenuItem Header="{loc:Loc Menu.Edit.Tools.Join}" InputGestureText="Ctrl+J"
+                          Command="{Binding ActivateToolCommand}" CommandParameter="Join"/>
+                <MenuItem Header="{loc:Loc Menu.Edit.Tools.Break}" InputGestureText="Ctrl+B"
+                          Command="{Binding ActivateToolCommand}" CommandParameter="Break"/>
+                <MenuItem Header="{loc:Loc Menu.Edit.Tools.Trim}" InputGestureText="Ctrl+T"
+                          Command="{Binding ActivateToolCommand}" CommandParameter="Trim"/>
+                <MenuItem Header="{loc:Loc Menu.Edit.Tools.Extend}" InputGestureText="Ctrl+E"
+                          Command="{Binding ActivateToolCommand}" CommandParameter="Extend"/>
+                <Separator/>
                 <MenuItem Header="{loc:Loc Menu.Edit.SelectAll}" InputGestureText="Ctrl+A" Command="{Binding SelectAllCommand}"/>
                 <MenuItem Header="{loc:Loc Menu.Edit.ClearSelection}" InputGestureText="Esc" Command="{Binding ClearSelectionCommand}"/>
             </MenuItem>
@@ -72,6 +90,20 @@
             <MenuItem Header="{loc:Loc Menu.Tools}">
                 <MenuItem Header="{loc:Loc Menu.Tools.Settings}" IsEnabled="False"
                           ToolTip="{loc:Loc Command.Later}"/>
+                <MenuItem Header="{loc:Loc Menu.Tools.Snap}" IsCheckable="True"
+                          InputGestureText="F3" IsChecked="{Binding SnapMasterEnabled}"/>
+                <MenuItem Header="{loc:Loc Menu.Tools.SnapSettings}">
+                    <MenuItem Header="{loc:Loc Snap.Kind.Endpoint}" IsCheckable="True"
+                              IsChecked="{Binding SnapEndpointEnabled}"/>
+                    <MenuItem Header="{loc:Loc Snap.Kind.Midpoint}" IsCheckable="True"
+                              IsChecked="{Binding SnapMidpointEnabled}"/>
+                    <MenuItem Header="{loc:Loc Snap.Kind.Center}" IsCheckable="True"
+                              IsChecked="{Binding SnapCenterEnabled}"/>
+                    <MenuItem Header="{loc:Loc Snap.Kind.Intersection}" IsCheckable="True"
+                              IsChecked="{Binding SnapIntersectionEnabled}"/>
+                    <MenuItem Header="{loc:Loc Snap.Kind.Nearest}" IsCheckable="True"
+                              IsChecked="{Binding SnapNearestEnabled}"/>
+                </MenuItem>
                 <MenuItem Header="{loc:Loc Menu.Tools.Language}">
                     <MenuItem Header="{loc:Loc Menu.Tools.Language.ZhCn}"
                               IsCheckable="True" IsChecked="{Binding IsZhCulture}"
@@ -104,6 +136,22 @@
                         Command="{Binding RedoCommand}" Style="{StaticResource ToolbarIconButton}"/>
                 <Separator/>
                 <Button Tag="{StaticResource Icon.Select}" ToolTip="{loc:Loc Tooltip.Select}"
+                        Command="{Binding ActivateToolCommand}" CommandParameter="Select"
+                        Style="{StaticResource ToolbarIconButton}"/>
+                <Button Tag="{StaticResource Icon.NodeEdit}" ToolTip="{loc:Loc Tooltip.NodeEdit}"
+                        Command="{Binding ActivateToolCommand}" CommandParameter="NodeEdit"
+                        Style="{StaticResource ToolbarIconButton}"/>
+                <Button Tag="{StaticResource Icon.ToolJoin}" ToolTip="{loc:Loc Tooltip.Join}"
+                        Command="{Binding ActivateToolCommand}" CommandParameter="Join"
+                        Style="{StaticResource ToolbarIconButton}"/>
+                <Button Tag="{StaticResource Icon.ToolBreak}" ToolTip="{loc:Loc Tooltip.Break}"
+                        Command="{Binding ActivateToolCommand}" CommandParameter="Break"
+                        Style="{StaticResource ToolbarIconButton}"/>
+                <Button Tag="{StaticResource Icon.ToolTrim}" ToolTip="{loc:Loc Tooltip.Trim}"
+                        Command="{Binding ActivateToolCommand}" CommandParameter="Trim"
+                        Style="{StaticResource ToolbarIconButton}"/>
+                <Button Tag="{StaticResource Icon.ToolExtend}" ToolTip="{loc:Loc Tooltip.Extend}"
+                        Command="{Binding ActivateToolCommand}" CommandParameter="Extend"
                         Style="{StaticResource ToolbarIconButton}"/>
                 <Button Tag="{StaticResource Icon.Delete}" ToolTip="{loc:Loc Tooltip.Delete}"
                         Command="{Binding DeleteCommand}" Style="{StaticResource ToolbarIconButton}"/>
@@ -349,10 +397,32 @@
                     <Grid Margin="4">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
 
-                        <DockPanel Grid.Row="0" Margin="0,0,0,4">
+                        <!-- stale-analysis banner: any geometry edit invalidates
+                             the previous diagnostics until the user re-runs Analyze. -->
+                        <Border Grid.Row="0" Background="{StaticResource DiagnosticWarning}" Padding="6,3" Margin="0,0,0,4">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{loc:Loc Status.AnalysisStale}" VerticalAlignment="Center"
+                                           Foreground="{StaticResource TextOnAccent}" TextTrimming="CharacterEllipsis"/>
+                                <Button Content="{loc:Loc Menu.Analyze.Contours}" Margin="10,0,0,0"
+                                        Command="{Binding AnalyzeCommand}" Padding="10,1"/>
+                            </StackPanel>
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsAnalysisStale}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                        </Border>
+
+                        <DockPanel Grid.Row="1" Margin="0,0,0,4">
                             <Button DockPanel.Dock="Right" Content="{loc:Loc Contours.Repair}"
                                     ToolTip="{loc:Loc Tooltip.Repair}" Command="{Binding RepairSelectedGapCommand}"
                                     Padding="10,2"/>
@@ -367,7 +437,7 @@
                                        VerticalAlignment="Center"/>
                         </DockPanel>
 
-                        <Grid Grid.Row="1">
+                        <Grid Grid.Row="2">
                             <!-- empty state -->
                             <TextBlock Text="{loc:Loc Diag.Empty}" HorizontalAlignment="Center" VerticalAlignment="Center"
                                        Foreground="{StaticResource TextSecondary}">
@@ -503,6 +573,13 @@
                     <TextBlock Text="{Binding EntityCountStatus}" MinWidth="90"/>
                     <TextBlock Text="{Binding SelectedCountStatus}" MinWidth="90" Margin="10,0,0,0"/>
                 </StackPanel>
+            </StatusBarItem>
+            <Separator/>
+            <StatusBarItem>
+                <TextBlock Text="{Binding SnapStatusText}" MinWidth="110" Margin="0,0,6,0"/>
+            </StatusBarItem>
+            <StatusBarItem>
+                <TextBlock Text="{Binding ToolStatusText}" MinWidth="80" Margin="0,0,6,0"/>
             </StatusBarItem>
             <Separator/>
             <StatusBarItem>

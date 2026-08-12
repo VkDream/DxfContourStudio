@@ -26,12 +26,22 @@ public partial class MainWindow : Window
         ViewportControl.Document = _viewModel.Document;
         ViewportControl.Viewport = _viewModel.Viewport;
         ViewportControl.Selection = _viewModel.Selection;
+        ViewportControl.ToolSession = _viewModel.ToolSession;
         ViewportControl.Diagnostics = _viewModel.CurrentDiagnostics;
         _viewModel.PropertyChanged += OnViewModelPropertyChanged;
         ViewportControl.EntityClicked += OnEntityClick;
         ViewportControl.EmptySpaceClicked += OnEmptyClick;
+        ViewportControl.BoxSelectionCommitted += OnBoxSelectionCommitted;
         ViewportControl.MoveGestureCommitted += OnMoveCommitted;
         ViewportControl.WorldCursorMoved += OnCursorMoved;
+        ViewportControl.PointerLeft += OnPointerLeft;
+        _viewModel.SnapChanged += OnSnapChanged;
+        _viewModel.HoverChanged += OnHoverChanged;
+        _viewModel.NodeEditPreviewChanged += OnNodeEditPreviewChanged;
+        ViewportControl.GripDragStarted += OnGripDragStarted;
+        ViewportControl.GripDragMoved += OnGripDragMoved;
+        ViewportControl.GripDragCommitted += OnGripDragCommitted;
+        ViewportControl.GripDragCancelled += OnGripDragCancelled;
         ViewportControl.SizeChanged += OnViewportSizeChanged;
         RefreshViewportSize();
     }
@@ -75,5 +85,42 @@ public partial class MainWindow : Window
     private void OnMoveCommitted(System.Collections.Generic.IReadOnlyList<long> ids, DxfContourStudio.Core.Geometry.Vector2 delta)
         => _viewModel.OnMoveCommitted(ids, delta);
 
+    /// <summary>Box drag finished — the VM converts the world box into a selection.</summary>
+    private void OnBoxSelectionCommitted(DxfContourStudio.Core.Geometry.Bounds box, bool additive, bool crossing)
+        => _viewModel.OnBoxSelectionCommitted(box, additive, crossing);
+
     private void OnCursorMoved(DxfContourStudio.Core.Geometry.Point2 p) => _viewModel.OnCursorChanged(p);
+
+    /// <summary>Pushes the current hover snap candidate into the viewport overlay.</summary>
+    private void OnSnapChanged() => ViewportControl.SnapMarker = _viewModel.CurrentSnap;
+
+    /// <summary>Pushes the hover-highlight entity id into the viewport.</summary>
+    private void OnHoverChanged() => ViewportControl.HoveredEntityId = _viewModel.HoveredEntityId;
+
+    /// <summary>Mouse leaves the canvas → the snap marker, status and tool preview clear.</summary>
+    private void OnPointerLeft()
+    {
+        _viewModel.ClearSnap();
+        _viewModel.ToolSession.OnPointerLeft();
+    }
+
+    /// <summary>Pushes the node-edit preview geometry into the viewport overlay.</summary>
+    private void OnNodeEditPreviewChanged()
+    {
+        ViewportControl.NodeEditPreview = _viewModel.NodeEditPreview;
+        if (!_viewModel.IsNodeEditing)
+        {
+            ViewportControl.NodeEditPreview = null;
+        }
+    }
+
+    private void OnGripDragStarted(DxfContourStudio.Application.Interaction.GripDescriptor grip)
+        => _viewModel.BeginNodeEdit(grip);
+
+    private void OnGripDragMoved(DxfContourStudio.Core.Geometry.Point2 world)
+        => _viewModel.NodeEditDrag(world);
+
+    private void OnGripDragCommitted() => _viewModel.CommitNodeEdit();
+
+    private void OnGripDragCancelled() => _viewModel.CancelNodeEdit();
 }

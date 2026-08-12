@@ -132,6 +132,25 @@ public sealed class SelectionModel
         RaiseChanged();
     }
 
+    /// <summary>Adds every id not already selected (no duplicates, no removal).</summary>
+    public void AddRange(IEnumerable<long> ids)
+    {
+        bool changed = false;
+        foreach (long id in ids)
+        {
+            if (_ids.Add(id))
+            {
+                PrimaryId = id;
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            RaiseChanged();
+        }
+    }
+
     /// <summary>Selects all of the given ids, replacing the current selection.</summary>
     public void SelectAll(IEnumerable<long> ids) => ReplaceWith(ids);
 

@@ -31,9 +31,15 @@
     <SolidColorBrush x:Key="PrimaryAccent" Color="#2D5F8A"/>
     <SolidColorBrush x:Key="PrimaryAccentHover" Color="#3A6F9E"/>
     <SolidColorBrush x:Key="AccentText" Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="TextOnAccent" Color="#FFFFFF"/>
     <SolidColorBrush x:Key="SelectionColor" Color="#E07818"/>
     <SolidColorBrush x:Key="DiagnosticWarning" Color="#C98A1B"/>
     <SolidColorBrush x:Key="DiagnosticError" Color="#C0392B"/>
+
+    <!--  D17 editing-tool overlay: normal preview / removal / extension  -->
+    <SolidColorBrush x:Key="Tool.PreviewBrush" Color="#508CDC"/>
+    <SolidColorBrush x:Key="Tool.RemoveBrush" Color="#C0392B"/>
+    <SolidColorBrush x:Key="Tool.ExtendBrush" Color="#3CA06E"/>
 
     <!--  semantics: borders & text  -->
     <SolidColorBrush x:Key="BorderNormal" Color="#D0D0D0"/>
@@ -55,6 +61,14 @@
     <SolidColorBrush x:Key="Diagnostic.OpenEndpointBrush" Color="#E07818"/>
     <SolidColorBrush x:Key="Diagnostic.GapConnectorBrush" Color="#E07818"/>
     <SolidColorBrush x:Key="Diagnostic.ErrorBrush" Color="#C0392B"/>
+
+    <!--  snap overlay (D13B: one brush, distinct marker shapes per kind)  -->
+    <SolidColorBrush x:Key="Snap.MarkerBrush" Color="#00A6B4"/>
+
+    <!--  grip overlay (D13B): blue handle on white fill, accent when hovered  -->
+    <SolidColorBrush x:Key="Grip.HandleBrush" Color="#2D5F8A"/>
+    <SolidColorBrush x:Key="Grip.HoverBrush" Color="#E8341C"/>
+    <SolidColorBrush x:Key="Grip.FillBrush" Color="#FFFFFF"/>
 
     <!--  layer panel  -->
     <SolidColorBrush x:Key="Layer.HeaderBrush" Color="#F0F0F0"/>

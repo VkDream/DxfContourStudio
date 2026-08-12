@@ -3,6 +3,35 @@
 All notable changes to DxfContourStudio are documented here.
 Versioning follows [ADR-006](docs/ADR/ADR-006-Versioning.md).
 
+## [Unreleased]
+
+### Added (0.3.0-dev)
+
+- Curve intersection engine 2.0 (line/arc/circle, runs, boundary point
+  collection) and self-intersection analysis across all runs (D1/D2).
+- Snapping engine: endpoint / intersection / center / midpoint / nearest
+  priorities; circle-aware (D3).
+- Editing commands and engines: Join (endpoint-adjacent, mixed polylines,
+  reversible), Break at parameter (lines/arcs/polylines), Trim/Extend
+  against line/circle boundaries, node dragging with arc re-splicing and
+  shared-vertex consistency (D4–D7).
+- Chain join as one undoable transaction (Edit → Join selected, Ctrl+J);
+  Break in half (Ctrl+B); Trim start/end to boundary (Ctrl+T /
+  Ctrl+Shift+T); menu + keyboard bindings (D12).
+- Rendering 2.0: world-space culling with per-entity bounds cache and
+  margin (D8).
+- Spatial index (uniform grid) behind document picking; revision-based lazy
+  rebuild; verified at 100k entities (D9, D11).
+- Round-trip fidelity tests for edited geometry — mixed polyline arc runs,
+  sweep sign, closed flags, node moves (D10).
+- Interactive editing tools (D13A–D17): EditToolSession mode state machine
+  behind Select / Node Edit / Join / Break / Trim / Extend tools; toolbar +
+  Edit menu activation, hover previews, escape-to-cancel chains, one undo
+  step per finished edit (ADR-019).
+- Stale-analysis semantics: any edit/undo marks the analysis stale with a
+  localized banner and clears the old diagnostic/contour listings; Analyze
+  and gap-repair refresh it (ADR-020).
+
 ## [0.2.0] - 2026-08-08
 
 First public functional release.
